@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aventura de Letras - Primaria</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Fredoka One para títulos amigables y Quicksand para lectura -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght=300..700&family=Quicksand:wght=400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+        .title-font {
+            font-family: 'Fredoka', sans-serif;
+        }
+        /* Custom animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+        .floating {
+            animation: float 3s ease-in-out infinite;
+        }
+        .transition-all-300 {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col justify-between text-base">
+
+    <!-- AUDIO SYSTEM (Web Audio API for zero dependencies) -->
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'success') {
+                // Happy high chime
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+            } else if (type === 'error') {
+                // Low sad buzz
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'click') {
+                // Simple soft click
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            } else if (type === 'level-up') {
+                // Grand arpeggio
+                osc.type = 'triangle';
+                const freqs = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50];
+                freqs.forEach((f, index) => {
+                    const oscSeq = audioCtx.createOscillator();
+                    const gainSeq = audioCtx.createGain();
+                    oscSeq.connect(gainSeq);
+                    gainSeq.connect(audioCtx.destination);
+                    oscSeq.type = 'triangle';
+                    oscSeq.frequency.setValueAtTime(f, audioCtx.currentTime + (index * 0.08));
+                    gainSeq.gain.setValueAtTime(0.1, audioCtx.currentTime + (index * 0.08));
+                    gainSeq.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (index * 0.08) + 0.2);
+                    oscSeq.start(audioCtx.currentTime + (index * 0.08));
+                    oscSeq.stop(audioCtx.currentTime + (index * 0.08) + 0.2);
+                });
+            }
+        }
+    </script>
+
+    <!-- MAIN APP CONTAINER -->
+    <div id="app" class="max-w-4xl mx-auto w-full px-4 py-6 flex-grow flex flex-col justify-start">
+        
+        <!-- HEADER / NAVIGATION (Always Visible) -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-md border-b-4 border-slate-200">
+            <div class="flex items-center gap-3 cursor-pointer" onclick="goHome()">
+                <span class="text-4xl">🎒</span>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-extrabold text-blue-600 title-font tracking-tight">Aventura de Letras</h1>
+                    <p class="text-xs text-slate-500 font-semibold tracking-wide">LENGUA CASTELLANA • CICLO SUPERIOR</p>
+                </div>
+            </div>
+            
+            <!-- Global Stats -->
+            <div class="flex gap-4 mt-3 md:mt-0">
+                <div class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold shadow-sm">
+                    <span>⭐</span> <span id="total-xp">0</span> XP
+                </div>
+                <div class="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold shadow-sm">
+                    <span>🏆</span> <span id="achievements-count">0/4</span> Logros
+                </div>
+                <button onclick="resetProgress()" class="text-xs text-slate-400 hover:text-red-500 transition-all font-semibold">
+                    Reiniciar progreso
+                </button>
+            </div>
+        </header>
+
+        <!-- APP SCREENS -->
+        <main class="flex-grow flex flex-col justify-center">
+
+            <!-- SCREEN 1: MENU / HUB -->
+            <section id="screen-hub" class="block">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-800 title-font mb-2">¡Elige tu próxima misión gramatical!</h2>
+                    <p class="text-slate-600 max-w-xl mx-auto">Pon a prueba tu ortografía, vocabulario y destreza lingüística. Cada reto baraja decenas de palabras distintas en cada intento. ¡Consigue tu Diploma!</p>
+                </div>
+
+                <!-- Games Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- Game Card 1: Palabras con H -->
+                    <div class="bg-white p-6 rounded-2xl shadow-lg border-2 border-slate-100 hover:border-sky-400 transition-all-300 hover:scale-[1.02] flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="text-4xl bg-sky-100 p-2.5 rounded-xl">🛸</span>
+                                <span id="badge-h" class="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-1 rounded-full uppercase tracking-wider">Pendiente</span>
+                            </div>
+                            <h3 class="text-xl font-bold text-slate-800 mb-1 title-font">El Misterio de la "H"</h3>
+                            <p class="text-sm text-slate-500 mb-4">Diferencia las palabras con "H" (diptongos iniciales h+ue/ie/ui, h- mudas, prefijos hidro/hiper) de divertidas trampas.</p>
+                        </div>
+                        <button onclick="startMysteryH()" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
+                            ¡Comenzar Desafío!
+                        </button>
+                    </div>
+
+                    <!-- Game Card 2: Palabras con G y J -->
+                    <div class="bg-white p-6 rounded-2xl shadow-lg border-2 border-slate-100 hover:border-violet-400 transition-all-300 hover:scale-[1.02] flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="text-4xl bg-violet-100 p-2.5 rounded-xl">🧪</span>
+                                <span id="badge-gj" class="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-1 rounded-full uppercase tracking-wider">Pendiente</span>
+                            </div>
+                            <h3 class="text-xl font-bold text-slate-800 mb-1 title-font">El Laboratorio de la "G" y "J"</h3>
+                            <p class="text-sm text-slate-500 mb-4">Domina las terminaciones en -aje, -jero, verbos en -ger/-gir y sus astutas excepciones léxicas de nivel superior.</p>
+                        </div>
+                        <button onclick="startLabGJ()" class="w-full bg-violet-500 hover:bg-violet-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
+                            ¡Comenzar Desafío!
+                        </button>
+                    </div>
+
+                    <!-- Game Card 3: Palabras Polisémicas -->
+                    <div class="bg-white p-6 rounded-2xl shadow-lg border-2 border-slate-100 hover:border-rose-400 transition-all-300 hover:scale-[1.02] flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="text-4xl bg-rose-100 p-2.5 rounded-xl">🎭</span>
+                                <span id="badge-poly" class="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-1 rounded-full uppercase tracking-wider">Pendiente</span>
+                            </div>
+                            <h3 class="text-xl font-bold text-slate-800 mb-1 title-font">El Enigma de las Polisémicas</h3>
+                            <p class="text-sm text-slate-500 mb-4">Descubre palabras camaleónicas que significan cosas completamente distintas dependiendo del contexto.</p>
+                        </div>
+                        <button onclick="startPolysemicEnigma()" class="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
+                            ¡Comenzar Desafío!
+                        </button>
+                    </div>
+
+                    <!-- Game Card 4: Familias de Palabras -->
+                    <div class="bg-white p-6 rounded-2xl shadow-lg border-2 border-slate-100 hover:border-emerald-400 transition-all-300 hover:scale-[1.02] flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="text-4xl bg-emerald-100 p-2.5 rounded-xl">🌳</span>
+                                <span id="badge-family" class="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-1 rounded-full uppercase tracking-wider">Pendiente</span>
+                            </div>
+                            <h3 class="text-xl font-bold text-slate-800 mb-1 title-font">¡Atrapa al Intruso!</h3>
+                            <p class="text-sm text-slate-500 mb-4">Identifica qué palabra no comparte el mismo lexema o raíz semántica histórica dentro del árbol léxico.</p>
+                        </div>
+                        <button onclick="startWordFamily()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
+                            ¡Comenzar Desafío!
+                        </button>
+                    </div>
+
+                </div>
+
+                <!-- Diploma Banner (Becomes fully active when all 4 are unlocked) -->
+                <div id="diploma-unlock-banner" class="mt-8 bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-6 text-center shadow-inner">
+                    <span class="text-5xl block mb-2 floating">📜</span>
+                    <h4 class="text-lg font-bold text-amber-900 title-font">Gran Diploma de Honor Lingüístico</h4>
+                    <p class="text-sm text-amber-700 mb-4">Consigue todos los logros completando cada minijuego para poder imprimir y guardar tu diploma oficial.</p>
+                    <button id="btn-view-diploma" disabled class="bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold py-2.5 px-6 rounded-xl transition-all opacity-50 cursor-not-allowed shadow-md">
+                        Ver mi Diploma de Honor 🔒
+                    </button>
+                </div>
+            </section>
+
+            <!-- GAME 1 SCREEN: EL MISTERIO DE LA H -->
+            <section id="screen-game-h" class="hidden">
+                <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-sky-100 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-slate-100">
+                        <div id="h-progress" class="h-full bg-sky-500 transition-all" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Header bar -->
+                    <div class="flex justify-between items-center mb-6 mt-2">
+                        <button onclick="goHome()" class="text-sky-500 hover:text-sky-700 font-bold text-sm flex items-center gap-1">
+                            ⬅️ Salir al mapa
+                        </button>
+                        <span class="font-bold text-sky-800 bg-sky-50 px-3 py-1 rounded-full text-sm">Pregunta: <span id="h-step-count">1/8</span></span>
+                    </div>
+
+                    <div class="text-center max-w-lg mx-auto mb-6">
+                        <span class="text-5xl mb-4 block floating">🛸</span>
+                        <h2 class="text-2xl font-black text-sky-950 title-font mb-2">¿Lleva "H" o no lleva "H"?</h2>
+                        <p class="text-slate-600 text-sm">Analiza el hueco inicial o intercalado. ¡Cuidado con los falsos amigos ortográficos!</p>
+                    </div>
+
+                    <!-- Word display -->
+                    <div class="bg-sky-50 border-2 border-sky-100 p-8 rounded-2xl text-center mb-6 shadow-inner">
+                        <span id="h-word-display" class="text-4xl md:text-5xl font-extrabold tracking-wide text-sky-950 title-font">__UESO</span>
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <button id="btn-h-true" onclick="checkHAnswer(true)" class="bg-sky-500 hover:bg-sky-600 text-white font-extrabold py-5 px-6 rounded-2xl text-xl shadow-md transition-all transform hover:scale-105">
+                            Lleva <span class="text-2xl title-font underline decoration-amber-300">H</span>
+                        </button>
+                        <button id="btn-h-false" onclick="checkHAnswer(false)" class="bg-slate-500 hover:bg-slate-600 text-white font-extrabold py-5 px-6 rounded-2xl text-xl shadow-md transition-all transform hover:scale-105">
+                            No lleva <span class="text-2xl title-font underline decoration-rose-400">H</span>
+                        </button>
+                    </div>
+
+                    <!-- Feedback message (Hidden by default) -->
+                    <div id="h-feedback" class="mt-4 p-4 rounded-xl text-center font-bold text-base md:text-lg hidden"></div>
+                </div>
+            </section>
+
+            <!-- GAME 2 SCREEN: EL LABORATORIO DE G Y J -->
+            <section id="screen-game-gj" class="hidden">
+                <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-violet-100 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-slate-100">
+                        <div id="gj-progress" class="h-full bg-violet-500 transition-all" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Header bar -->
+                    <div class="flex justify-between items-center mb-6 mt-2">
+                        <button onclick="goHome()" class="text-violet-500 hover:text-violet-700 font-bold text-sm flex items-center gap-1">
+                            ⬅️ Salir al mapa
+                        </button>
+                        <span class="font-bold text-violet-800 bg-violet-50 px-3 py-1 rounded-full text-sm">Fórmula: <span id="gj-step-count">1/8</span></span>
+                    </div>
+
+                    <div class="text-center max-w-lg mx-auto mb-6">
+                        <span class="text-5xl mb-4 block floating">🧪</span>
+                        <h2 class="text-2xl font-black text-violet-950 title-font mb-2">El Tubo de Ensayo</h2>
+                        <p class="text-slate-600 text-sm">Rellena el espacio vacío con la consonante adecuada: ¿G o J?</p>
+                    </div>
+
+                    <!-- Word display with fill-in-the-blank -->
+                    <div class="bg-violet-50 border-2 border-violet-100 p-8 rounded-2xl text-center mb-6 shadow-inner">
+                        <span id="gj-word-display" class="text-4xl md:text-5xl font-extrabold tracking-wide text-violet-950 title-font">via_ero</span>
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <button id="btn-gj-g" onclick="checkGJAnswer('g')" class="bg-violet-600 hover:bg-violet-700 text-white font-extrabold py-5 px-6 rounded-2xl text-3xl shadow-md transition-all transform hover:scale-105">
+                            G
+                        </button>
+                        <button id="btn-gj-j" onclick="checkGJAnswer('j')" class="bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-5 px-6 rounded-2xl text-3xl shadow-md transition-all transform hover:scale-105">
+                            J
+                        </button>
+                    </div>
+
+                    <!-- Feedback message (Hidden by default) -->
+                    <div id="gj-feedback" class="mt-4 p-4 rounded-xl text-center font-bold text-base md:text-lg hidden"></div>
+                </div>
+            </section>
+
+            <!-- GAME 3 SCREEN: EL ENIGMA DE LAS POLISÉMICAS -->
+            <section id="screen-game-poly" class="hidden">
+                <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-rose-100 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-slate-100">
+                        <div id="poly-progress" class="h-full bg-rose-500 transition-all" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Header bar -->
+                    <div class="flex justify-between items-center mb-6 mt-2">
+                        <button onclick="goHome()" class="text-rose-500 hover:text-rose-700 font-bold text-sm flex items-center gap-1">
+                            ⬅️ Salir al mapa
+                        </button>
+                        <span class="font-bold text-rose-800 bg-rose-50 px-3 py-1 rounded-full text-sm">Aciertos: <span id="poly-step-count">1/5</span></span>
+                    </div>
+
+                    <div class="text-center max-w-xl mx-auto mb-6">
+                        <span class="text-5xl mb-4 block floating">🎭</span>
+                        <h2 class="text-2xl font-black text-rose-950 title-font mb-2">¿Qué palabra es de doble cara?</h2>
+                        <p class="text-slate-600 text-sm">Lee atentamente los dos contextos diferentes. Elige el único término homógrafo que funciona en ambos.</p>
+                    </div>
+
+                    <!-- Two definitions/sentences -->
+                    <div class="space-y-4 mb-6">
+                        <div class="bg-rose-50 border-l-4 border-rose-400 p-4 rounded-r-xl shadow-sm">
+                            <span class="text-xs font-bold text-rose-700 block uppercase mb-1">Pista 1:</span>
+                            <p id="poly-desc1" class="text-base font-semibold text-slate-700">Asiento largo donde caben varias personas.</p>
+                        </div>
+                        <div class="bg-rose-50 border-l-4 border-rose-400 p-4 rounded-r-xl shadow-sm">
+                            <span class="text-xs font-bold text-rose-700 block uppercase mb-1">Pista 2:</span>
+                            <p id="poly-desc2" class="text-base font-semibold text-slate-700">Establecimiento para ahorrar o pedir prestado dinero.</p>
+                        </div>
+                    </div>
+
+                    <!-- Multiple choices -->
+                    <div id="poly-options" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <!-- Options generated dynamically -->
+                    </div>
+
+                    <!-- Feedback message -->
+                    <div id="poly-feedback" class="mt-4 p-4 rounded-xl text-center font-bold text-base md:text-lg hidden"></div>
+                </div>
+            </section>
+
+            <!-- GAME 4 SCREEN: FAMILIAS DE PALABRAS -->
+            <section id="screen-game-family" class="hidden">
+                <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-emerald-100 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-slate-100">
+                        <div id="family-progress" class="h-full bg-emerald-500 transition-all" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Header bar -->
+                    <div class="flex justify-between items-center mb-6 mt-2">
+                        <button onclick="goHome()" class="text-emerald-500 hover:text-emerald-700 font-bold text-sm flex items-center gap-1">
+                            ⬅️ Salir al mapa
+                        </button>
+                        <span class="font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full text-sm">Bosque: <span id="family-step-count">1/5</span></span>
+                    </div>
+
+                    <div class="text-center max-w-xl mx-auto mb-6">
+                        <span class="text-5xl mb-4 block floating">🌳</span>
+                        <h2 class="text-2xl font-black text-emerald-950 title-font mb-2">¡Busca al Intruso!</h2>
+                        <p class="text-slate-600 text-sm">Una de estas cinco opciones **no** pertenece a la familia de palabras (no comparte la misma raíz u origen léxico).</p>
+                    </div>
+
+                    <!-- Word Family Header -->
+                    <div class="text-center mb-4">
+                        <span class="text-xs font-bold uppercase text-emerald-600 tracking-wider">Familia de palabras de:</span>
+                        <h3 id="family-root" class="text-3xl font-extrabold text-emerald-950 title-font">MAR</h3>
+                    </div>
+
+                    <!-- Words to check -->
+                    <div id="family-options" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                        <!-- Options generated dynamically -->
+                    </div>
+
+                    <!-- Feedback message -->
+                    <div id="family-feedback" class="mt-4 p-4 rounded-xl text-center font-bold text-base md:text-lg hidden"></div>
+                </div>
+            </section>
+
+            <!-- WINNER/CONGRATS MODAL (Dynamic Overlay) -->
+            <div id="congrats-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
+                <div class="bg-white rounded-3xl max-w-md w-full p-6 text-center shadow-2xl border-4 border-amber-300 transform scale-95 transition-all">
+                    <span id="modal-emoji" class="text-6xl block mb-4 floating">🏆</span>
+                    <h3 id="modal-title" class="text-2xl font-black text-slate-800 title-font mb-2">¡Reto Completado!</h3>
+                    <p id="modal-desc" class="text-slate-600 mb-6">Has demostrado un gran dominio de la lengua castellana. ¡Sigue así!</p>
+                    
+                    <div class="bg-amber-50 p-4 rounded-2xl mb-6">
+                        <span class="text-sm text-amber-700 font-bold block">Recompensa:</span>
+                        <span id="modal-reward" class="text-xl font-extrabold text-amber-900">+100 XP & Insignia de Oro</span>
+                    </div>
+
+                    <button onclick="closeCongratsModal()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all">
+                        ¡Estupendo! Volver al mapa
+                    </button>
+                </div>
+            </div>
+
+            <!-- DIPLOMA SCREEN -->
+            <section id="screen-diploma" class="hidden">
+                <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-amber-400 relative">
+                    <!-- Nav -->
+                    <div class="flex justify-between items-center mb-6">
+                        <button onclick="goHome()" class="text-amber-600 hover:text-amber-800 font-bold text-sm flex items-center gap-1">
+                            ⬅️ Volver al mapa
+                        </button>
+                        <button onclick="window.print()" class="bg-amber-500 hover:bg-amber-600 text-amber-950 font-bold px-4 py-2 rounded-xl text-sm transition-all shadow">
+                            🖨️ Imprimir Diploma
+                        </button>
+                    </div>
+
+                    <!-- Diploma Frame -->
+                    <div class="border-8 border-double border-amber-400 p-8 rounded-2xl text-center bg-amber-50 relative overflow-hidden">
+                        
+                        <!-- Watermarks & Decor -->
+                        <span class="text-9xl text-amber-200/20 absolute -top-5 -left-5 select-none pointer-events-none">🎓</span>
+                        <span class="text-9xl text-amber-200/20 absolute -bottom-5 -right-5 select-none pointer-events-none">✨</span>
+
+                        <span class="text-6xl block mb-4">📜</span>
+                        <span class="text-xs uppercase tracking-widest font-bold text-amber-800 block mb-1">DIPLOMA DE HONOR LINGÜÍSTICO</span>
+                        <h2 class="text-3xl md:text-4xl font-black text-amber-900 title-font mb-4">Gran Maestro de la Lengua</h2>
+                        
+                        <p class="text-sm text-slate-600 max-w-md mx-auto mb-6">
+                            Otorgado con distinción especial al estudiante aventurero por superar con éxito los cuatro desafíos de lengua castellana del Ciclo Superior de Primaria:
+                        </p>
+
+                        <!-- Accomplishments list -->
+                        <div class="grid grid-cols-2 gap-3 max-w-lg mx-auto mb-8 text-left text-xs text-slate-700 font-semibold bg-white p-4 rounded-xl shadow-inner border border-amber-100">
+                            <div class="flex items-center gap-2">🟢 El Misterio de la H</div>
+                            <div class="flex items-center gap-2">🟢 El Laboratorio de la G y J</div>
+                            <div class="flex items-center gap-2">🟢 El Enigma de las Polisémicas</div>
+                            <div class="flex items-center gap-2">🟢 El Árbol de las Familias</div>
+                        </div>
+
+                        <!-- Signatures & Date -->
+                        <div class="flex flex-col md:flex-row justify-between items-center px-6 pt-4 border-t border-amber-200 gap-4 md:gap-0">
+                            <div class="text-center">
+                                <span class="block italic text-sm text-slate-800 font-bold">Mila H. Silenciosa</span>
+                                <span class="text-[10px] text-slate-500 uppercase font-semibold">Cátedra de Ortografía</span>
+                            </div>
+                            <div class="bg-amber-200/50 p-2.5 rounded-full border border-amber-300">
+                                <span class="text-xs font-bold text-amber-900">SELLO DE CALIDAD</span>
+                            </div>
+                            <div class="text-center">
+                                <span class="block italic text-sm text-slate-800 font-bold">Don Verbo Lexicón</span>
+                                <span class="text-[10px] text-slate-500 uppercase font-semibold">Consejo de Semántica</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 text-[10px] text-slate-400">
+                            Verificado el <span id="diploma-date">--/--/----</span> • ID de Aventurero: <span id="adventure-id">#999</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="bg-slate-900 text-slate-400 py-4 text-center text-xs mt-6 border-t border-slate-800">
+        <p>© 2026 Aventura de Letras. Diseñado para el aprendizaje divertido de la lengua castellana en el aula.</p>
+    </footer>
+
+    <!-- GAME DATA AND CORE LOGIC -->
+    <script>
+        // --- GAME STATE ---
+        let state = {
+            xp: 0,
+            completedGames: {
+                h: false,
+                gj: false,
+                poly: false,
+                family: false
+            }
+        };
+
+        // Fisher-Yates shuffle algorithm for true randomness
+        function shuffle(array) {
+            let m = array.length, t, i;
+            while (m) {
+                i = Math.floor(Math.random() * m--);
+                t = array[m];
+                array[m] = array[i];
+                array[i] = t;
+            }
+            return array;
+        }
+
+        // Load progress from localStorage if available, otherwise start fresh
+        function initApp() {
+            const saved = localStorage.getItem('aventura_letras_save');
+            if (saved) {
+                try {
+                    state = JSON.parse(saved);
+                } catch(e) {
+                    console.error("Error cargando partida guardada, reiniciando.");
+                }
+            }
+            updateStatsUI();
+            goHome();
+        }
+
+        function saveState() {
+            localStorage.setItem('aventura_letras_save', JSON.stringify(state));
+            updateStatsUI();
+        }
+
+        function resetProgress() {
+            if (confirm("¿Estás seguro de que quieres borrar tu puntuación y empezar de nuevo?")) {
+                playSound('error');
+                state = {
+                    xp: 0,
+                    completedGames: {
+                        h: false,
+                        gj: false,
+                        poly: false,
+                        family: false
+                    }
+                };
+                saveState();
+                goHome();
+            }
+        }
+
+        function updateStatsUI() {
+            document.getElementById('total-xp').innerText = state.xp;
+            
+            // Calculate achievements
+            let count = 0;
+            if (state.completedGames.h) count++;
+            if (state.completedGames.gj) count++;
+            if (state.completedGames.poly) count++;
+            if (state.completedGames.family) count++;
+
+            document.getElementById('achievements-count').innerText = `${count}/4`;
+
+            // Update Hub Badges UI
+            updateBadge('badge-h', state.completedGames.h);
+            updateBadge('badge-gj', state.completedGames.gj);
+            updateBadge('badge-poly', state.completedGames.poly);
+            updateBadge('badge-family', state.completedGames.family);
+
+            // Diploma Button Unlock
+            const btnDiploma = document.getElementById('btn-view-diploma');
+            const diplomaBanner = document.getElementById('diploma-unlock-banner');
+            if (count === 4) {
+                btnDiploma.disabled = false;
+                btnDiploma.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnDiploma.classList.add('bg-amber-400', 'text-amber-950', 'hover:bg-amber-500');
+                btnDiploma.innerText = "¡Ver mi Diploma de Honor! 📜🏆";
+                btnDiploma.onclick = showDiploma;
+                diplomaBanner.classList.add('border-amber-400', 'bg-amber-100/50');
+            } else {
+                btnDiploma.disabled = true;
+                btnDiploma.classList.add('opacity-50', 'cursor-not-allowed');
+                btnDiploma.innerText = `Ver mi Diploma de Honor (${count}/4 Desafíos) 🔒`;
+                btnDiploma.onclick = null;
+            }
+        }
+
+        function updateBadge(id, completed) {
+            const el = document.getElementById(id);
+            if (completed) {
+                el.innerText = "¡Completado! ✨";
+                el.className = "text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-1 rounded-full uppercase tracking-wider";
+            } else {
+                el.innerText = "Pendiente";
+                el.className = "text-xs bg-slate-100 text-slate-500 font-bold px-2 py-1 rounded-full uppercase tracking-wider";
+            }
+        }
+
+        // --- NAVIGATION ---
+        function hideAllScreens() {
+            document.getElementById('screen-hub').style.display = 'none';
+            document.getElementById('screen-game-h').style.display = 'none';
+            document.getElementById('screen-game-gj').style.display = 'none';
+            document.getElementById('screen-game-poly').style.display = 'none';
+            document.getElementById('screen-game-family').style.display = 'none';
+            document.getElementById('screen-diploma').style.display = 'none';
+        }
+
+        function goHome() {
+            playSound('click');
+            hideAllScreens();
+            document.getElementById('screen-hub').style.display = 'block';
+        }
+
+        function showDiploma() {
+            playSound('level-up');
+            hideAllScreens();
+            document.getElementById('screen-diploma').style.display = 'block';
+            
+            // Set dynamic metadata
+            const dateStr = new Date().toLocaleDateString('es-ES');
+            document.getElementById('diploma-date').innerText = dateStr;
+            document.getElementById('adventure-id').innerText = "#" + Math.floor(1000 + Math.random() * 9000);
+        }
+
+        // --- MODAL UTILS ---
+        function triggerCongratsModal(emoji, title, desc, rewardText) {
+            playSound('level-up');
+            document.getElementById('modal-emoji').innerText = emoji;
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-desc').innerText = desc;
+            document.getElementById('modal-reward').innerText = rewardText;
+            document.getElementById('congrats-modal').classList.remove('hidden');
+        }
+
+        function closeCongratsModal() {
+            playSound('click');
+            document.getElementById('congrats-modal').classList.add('hidden');
+            goHome();
+        }
+
+        // ==========================================
+        // MAXI DATABASE - GAME 1: EL MISTERIO DE LA H (40 palabras)
+        // ==========================================
+        const dataH = [
+            { word: "__ueso", answer: true, feedback: "¡Correcto! Las palabras que empiezan por los diptongos 'ue', 'ie', 'ui' se escriben con H (Hueso)." },
+            { word: "__ielo", answer: true, feedback: "¡Exacto! Empieza por el diptongo 'ie', por lo que lleva H (Hielo)." },
+            { word: "arena", answer: false, feedback: "¡Perfecto! Arena se escribe sin H." },
+            { word: "almo__ada", answer: true, feedback: "¡Buen ojo! Almohada lleva H intercalada." },
+            { word: "co__ete", answer: true, feedback: "¡Impresionante! Cohete lleva una H intercalada." },
+            { word: "orilla", answer: false, feedback: "¡Correcto! Orilla se escribe sin H." },
+            { word: "araña", answer: false, feedback: "¡Así es! Araña se escribe sin H." },
+            { word: "__uella", answer: true, feedback: "¡Buenísimo! Huella se escribe con H porque empieza por 'ue'." },
+            { word: "__ierro", answer: true, feedback: "¡Correcto! Hierro lleva H por el diptongo inicial 'ie'." },
+            { word: "asado", answer: false, feedback: "¡Exacto! El asado se cocina sin H." },
+            { word: "__umano", answer: true, feedback: "¡Excelente! Las palabras que comienzan por 'hum-' seguido de vocal llevan H (Humano)." },
+            { word: "__orrible", answer: true, feedback: "¡Correcto! Horrible lleva H inicial." },
+            { word: "__ermano", answer: true, feedback: "¡Muy bien! Hermano se escribe con H (proviene del latín germanus)." },
+            { word: "__ospital", answer: true, feedback: "¡Eso es! Hospital se escribe con H." },
+            { word: "__istoria", answer: true, feedback: "¡Bien hecho! Historia y todas sus derivadas llevan H." },
+            { word: "__iedra", answer: true, feedback: "¡Correcto! Hiedra es una planta y se escribe con H." },
+            { word: "__uevo", answer: true, feedback: "¡Fácil! Huevo empieza por el diptongo 'ue' y por tanto lleva H." },
+            { word: "__uérfano", answer: true, feedback: "¡Perfecto! Huérfano lleva H por empezar por 'ue'." },
+            { word: "__uir", answer: true, feedback: "¡Correcto! El verbo huir se escribe con H." },
+            { word: "__ilo", answer: true, feedback: "¡Muy bien! Hilo lleva H inicial." },
+            { word: "__oja", answer: true, feedback: "¡Estupendo! Hoja se escribe con H." },
+            { word: "__ombre", answer: true, feedback: "¡Exacto! Hombre se escribe con H." },
+            { word: "__ora", answer: true, feedback: "¡Sí! El tiempo se mide en 'horas' con H." },
+            { word: "__abitación", answer: true, feedback: "¡Correcto! Habitación lleva H." },
+            { word: "__alcón", answer: true, feedback: "¡Buen ojo! Halcón (ave rapaz) se escribe con H." },
+            { word: "__ervir", answer: true, feedback: "¡Excelente! Hervir, al igual que todos los verbos cuyos infinitivos llevan H, se escribe con H." },
+            { word: "__oguera", answer: true, feedback: "¡Muy bien! Hoguera se escribe con H." },
+            { word: "__undir", answer: true, feedback: "¡Sí! Hundir se escribe con H." },
+            { word: "estrella", answer: false, feedback: "¡Exacto! Estrella no lleva H." },
+            { word: "ensalada", answer: false, feedback: "¡Bien! Ensalada no tiene H." },
+            { word: "oreja", answer: false, feedback: "¡Perfecto! Oreja se escribe sin H (viene de auris)." },
+            { word: "escarabajo", answer: false, feedback: "¡Eso es! Escarabajo no lleva H." },
+            { word: "__elecho", answer: true, feedback: "¡Correcto! Helecho se escribe con H." },
+            { word: "__idrante", answer: true, feedback: "¡Gran nivel! Las palabras que empiezan por 'hidr-' (agua) llevan H (Hidrante)." },
+            { word: "__idrógeno", answer: true, feedback: "¡Sí! Hidrógeno empieza por 'hidr-', por lo tanto lleva H." },
+            { word: "__ipopótamo", answer: true, feedback: "¡Genial! Las palabras que empiezan por 'hipo-' (como Hipopótamo) llevan H." },
+            { word: "__iena", answer: true, feedback: "¡Bien! Hiena empieza por el diptongo 'ie', por lo tanto lleva H." },
+            { word: "__uerto", answer: true, feedback: "¡Correcto! Huerto empieza por el diptongo 'ue'." },
+            { word: "__orizonte", answer: true, feedback: "¡Muy bien! Horizonte se escribe con H." },
+            { word: "__ojera", answer: false, feedback: "¡Excelente trampa superada! Ojera no lleva H porque viene de 'ojo'." },
+            { word: "__orfanato", answer: false, feedback: "¡Impresionante! Aunque 'huérfano' lleva H por empezar por 'ue', 'orfanato' no tiene ese diptongo y se escribe sin H." },
+            { word: "__óseo", answer: false, feedback: "¡Qué gran nivel! Aunque 'hueso' lleva H por el diptongo 'ue', su término culto 'óseo' no lo tiene y se escribe sin H." }
+        ];
+
+        let hIndex = 0;
+        let hCorrectAnswers = 0;
+        let hSessionList = [];
+
+        function startMysteryH() {
+            playSound('click');
+            hIndex = 0;
+            hCorrectAnswers = 0;
+            
+            // Shuffle the entire list and extract 8 questions
+            let shuffled = shuffle([...dataH]);
+            hSessionList = shuffled.slice(0, 8);
+            
+            // Enable interaction buttons
+            document.getElementById('btn-h-true').disabled = false;
+            document.getElementById('btn-h-false').disabled = false;
+
+            hideAllScreens();
+            document.getElementById('screen-game-h').style.display = 'block';
+            updateHScreen();
+        }
+
+        function updateHScreen() {
+            const progress = (hIndex / hSessionList.length) * 100;
+            document.getElementById('h-progress').style.width = `${progress}%`;
+            document.getElementById('h-step-count').innerText = `${hIndex + 1}/${hSessionList.length}`;
+            
+            const item = hSessionList[hIndex];
+            document.getElementById('h-word-display').innerText = item.word.toUpperCase();
+            
+            const feedbackEl = document.getElementById('h-feedback');
+            feedbackEl.classList.add('hidden');
+
+            document.getElementById('btn-h-true').disabled = false;
+            document.getElementById('btn-h-false').disabled = false;
+        }
+
+        function checkHAnswer(userAnswer) {
+            const item = hSessionList[hIndex];
+            const feedbackEl = document.getElementById('h-feedback');
+            feedbackEl.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-800', 'bg-rose-100', 'text-rose-800');
+
+            // Disable buttons to avoid multiple clicks
+            document.getElementById('btn-h-true').disabled = true;
+            document.getElementById('btn-h-false').disabled = true;
+
+            if (userAnswer === item.answer) {
+                playSound('success');
+                feedbackEl.innerText = item.feedback;
+                feedbackEl.classList.add('bg-emerald-100', 'text-emerald-800');
+                hCorrectAnswers++;
+            } else {
+                playSound('error');
+                feedbackEl.innerText = `¡Ups! No es correcto. ${item.feedback}`;
+                feedbackEl.classList.add('bg-rose-100', 'text-rose-800');
+            }
+
+            // Move to next after read
+            setTimeout(() => {
+                hIndex++;
+                if (hIndex < hSessionList.length) {
+                    updateHScreen();
+                } else {
+                    finishGameH();
+                }
+            }, 3000);
+        }
+
+        function finishGameH() {
+            const totalQuestions = hSessionList.length;
+            const percentage = (hCorrectAnswers / totalQuestions) * 100;
+            
+            if (percentage >= 75) { // 6 or more correct
+                if (!state.completedGames.h) {
+                    state.completedGames.h = true;
+                    state.xp += 100;
+                    saveState();
+                    triggerCongratsModal("🛸", "¡Explorador de la H!", "Has descifrado correctamente el enigma de las haches mudas.", "+100 XP & Insignia de Oro");
+                } else {
+                    triggerCongratsModal("🛸", "¡Repetición Excelente!", "Has completado la prueba de la H de nuevo.", "+0 XP (Ya tenías este logro)");
+                }
+            } else {
+                playSound('error');
+                alert(`¡Necesitas mejorar un poco! Has acertado ${hCorrectAnswers} de ${totalQuestions} preguntas. ¡Inténtalo de nuevo para conseguir la insignia!`);
+                goHome();
+            }
+        }
+
+
+        // ==========================================
+        // MAXI DATABASE - GAME 2: EL LABORATORIO DE G Y J (40 palabras)
+        // ==========================================
+        const dataGJ = [
+            { word: "via_ero", correct: "j", display: "via_ero", feedback: "¡Correcto! Las palabras terminadas en '-jero' se escriben con J (Viajero), excepto 'ligero'." },
+            { word: "co_egio", correct: "g", display: "co_egio", feedback: "¡Correcto! Las palabras que contienen la sílaba 'gie' o el grupo 'gio' se escriben con G (Colegio)." },
+            { word: "te_er", correct: "j", display: "te_er", feedback: "¡Magnífico! Los verbos terminados en '-jer' se escriben con J (Tejer y Crujir son excepciones a la regla de la G)." },
+            { word: "diri_ir", correct: "g", display: "diri_ir", feedback: "¡Bien hecho! Los verbos que terminan en '-gir' se escriben con G (Dirigir)." },
+            { word: "re_oj", correct: "j", display: "re_oj", feedback: "¡Excelente! La palabra Reloj se escribe con J al final." },
+            { word: "oxí_eno", correct: "g", display: "oxí_eno", feedback: "¡Perfecto! Oxígeno se escribe con G." },
+            { word: "cora_e", correct: "j", display: "cora_e", feedback: "¡Estupendo! Las palabras terminadas en '-aje' y '-eje' se escriben con J (Coraje)." },
+            { word: "cru_ir", correct: "j", display: "cru_ir", feedback: "¡Bien! Al igual que tejer, Crujir es una de las excepciones de los verbos y se escribe con J." },
+            { word: "beren_ena", correct: "j", display: "beren_ena", feedback: "¡Correcto! Berenjena se escribe con J." },
+            { word: "_ente", correct: "g", display: "_ente", feedback: "¡Muy bien! Gente se escribe con G." },
+            { word: "equipa_e", correct: "j", display: "equipa_e", feedback: "¡Estupendo! La terminación '-aje' siempre lleva J (Equipaje)." },
+            { word: "mensa_ero", correct: "j", display: "mensa_ero", feedback: "¡Correcto! Las palabras terminadas en '-jero' llevan J." },
+            { word: "ti_era", correct: "j", display: "ti_era", feedback: "¡Bien hecho! Tijera se escribe con J." },
+            { word: "fin_ir", correct: "g", display: "fin_ir", feedback: "¡Perfecto! El infinitivo de los verbos terminados en '-gir' lleva G (Fingir)." },
+            { word: "esco_er", correct: "g", display: "esco_er", feedback: "¡Sí! Los verbos en '-ger' se escriben con G (Escoger)." },
+            { word: "prote_er", correct: "g", display: "prote_er", feedback: "¡Muy bien! Proteger se escribe con G." },
+            { word: "extran_ero", correct: "j", display: "extran_ero", feedback: "¡Correcto! Extranjero termina en '-jero', por lo tanto lleva J." },
+            { word: "re_illa", correct: "j", display: "re_illa", feedback: "¡Eso es! Rejilla se escribe con J." },
+            { word: "_igante", correct: "g", display: "_igante", feedback: "¡Correcto! Gigante se escribe con G." },
+            { word: "_irasol", correct: "g", display: "_irasol", feedback: "¡Buenísimo! Girasol se escribe con G." },
+            { word: "_imnasia", correct: "g", display: "_imnasia", feedback: "¡Excelente! Gimnasia se escribe con G." },
+            { word: "_esto", correct: "g", display: "_esto", feedback: "¡Muy bien! Las palabras que comienzan por 'gest-' llevan G (Gesto)." },
+            { word: "_eografía", correct: "g", display: "_eografía", feedback: "¡Correcto! Las palabras que comienzan con el prefijo 'geo-' (tierra) llevan G." },
+            { word: "a_enda", correct: "g", display: "a_enda", feedback: "¡Bien! Agenda se escribe con G." },
+            { word: "pasa_e", correct: "j", display: "pasa_e", feedback: "¡Correcto! Pasaje se escribe con J por la terminación '-aje'." },
+            { word: "masa_e", correct: "j", display: "masa_e", feedback: "¡Excelente! Masaje se escribe con J." },
+            { word: "tatua_e", correct: "j", display: "tatua_e", feedback: "¡Eso es! Tatuaje termina en '-aje', por lo que va con J." },
+            { word: "re_ente", correct: "g", display: "re_ente", feedback: "¡Buen trabajo! Regente se escribe con G." },
+            { word: "vi_ilante", correct: "g", display: "vi_ilante", feedback: "¡Perfecto! Vigilante se escribe con G." },
+            { word: "li_ero", correct: "g", display: "li_ero", feedback: "¡Excelente! Superaste la trampa: 'Ligero' es la única gran excepción de la regla '-jero' y se escribe con G." },
+            { word: "_eringa", correct: "j", display: "_eringa", feedback: "¡Correcto! Jeringa se escribe con J." },
+            { word: "_irafa", correct: "j", display: "_irafa", feedback: "¡Muy bien! Jirafa lleva J." },
+            { word: "_inete", correct: "j", display: "_inete", feedback: "¡Sí! Jinete se escribe con J." },
+            { word: "_efe", correct: "j", display: "_efe", feedback: "¡Exacto! Jefe se escribe con J." },
+            { word: "cera_ero", correct: "j", display: "cera_ero", feedback: "¡Bien hecho! Cerrajero termina en '-jero' (con J)." },
+            { word: "pluma_e", correct: "j", display: "pluma_e", feedback: "¡Correcto! Plumaje termina en '-aje' (con J)." },
+            { word: "conser_ería", correct: "j", display: "conser_ería", feedback: "¡Perfecto! Conserjería proviene de conserje y se escribe con J." },
+            { word: "corre_ir", correct: "g", display: "corre_ir", feedback: "¡Excelente! Corregir termina en '-gir' (con G)." },
+            { word: "exi_ir", correct: "g", display: "exi_ir", feedback: "¡Sí! Exigir se escribe con G." },
+            { word: "cru_ido", correct: "j", display: "cru_ido", feedback: "¡Muy bien! Al venir de 'crujir', Crujido mantiene la J." }
+        ];
+
+        let gjIndex = 0;
+        let gjCorrectAnswers = 0;
+        let gjSessionList = [];
+
+        function startLabGJ() {
+            playSound('click');
+            gjIndex = 0;
+            gjCorrectAnswers = 0;
+            
+            let shuffled = shuffle([...dataGJ]);
+            gjSessionList = shuffled.slice(0, 8);
+            
+            document.getElementById('btn-gj-g').disabled = false;
+            document.getElementById('btn-gj-j').disabled = false;
+
+            hideAllScreens();
+            document.getElementById('screen-game-gj').style.display = 'block';
+            updateGJScreen();
+        }
+
+        function updateGJScreen() {
+            const progress = (gjIndex / gjSessionList.length) * 100;
+            document.getElementById('gj-progress').style.width = `${progress}%`;
+            document.getElementById('gj-step-count').innerText = `${gjIndex + 1}/${gjSessionList.length}`;
+            
+            const item = gjSessionList[gjIndex];
+            document.getElementById('gj-word-display').innerText = item.display;
+            
+            const feedbackEl = document.getElementById('gj-feedback');
+            feedbackEl.classList.add('hidden');
+
+            document.getElementById('btn-gj-g').disabled = false;
+            document.getElementById('btn-gj-j').disabled = false;
+        }
+
+        function checkGJAnswer(userLetter) {
+            const item = gjSessionList[gjIndex];
+            const feedbackEl = document.getElementById('gj-feedback');
+            feedbackEl.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-800', 'bg-rose-100', 'text-rose-800');
+
+            document.getElementById('btn-gj-g').disabled = true;
+            document.getElementById('btn-gj-j').disabled = true;
+
+            if (userLetter.toLowerCase() === item.correct.toLowerCase()) {
+                playSound('success');
+                feedbackEl.innerText = item.feedback;
+                feedbackEl.classList.add('bg-emerald-100', 'text-emerald-800');
+                gjCorrectAnswers++;
+            } else {
+                playSound('error');
+                feedbackEl.innerText = `¡Oh no! No es correcto. ${item.feedback}`;
+                feedbackEl.classList.add('bg-rose-100', 'text-rose-800');
+            }
+
+            setTimeout(() => {
+                gjIndex++;
+                if (gjIndex < gjSessionList.length) {
+                    updateGJScreen();
+                } else {
+                    finishGameGJ();
+                }
+            }, 3000);
+        }
+
+        function finishGameGJ() {
+            const totalQuestions = gjSessionList.length;
+            const percentage = (gjCorrectAnswers / totalQuestions) * 100;
+            
+            if (percentage >= 75) { 
+                if (!state.completedGames.gj) {
+                    state.completedGames.gj = true;
+                    state.xp += 100;
+                    saveState();
+                    triggerCongratsModal("🧪", "¡Maestro de la G y J!", "Has formulado las palabras correctamente en el laboratorio.", "+100 XP & Insignia de Oro");
+                } else {
+                    triggerCongratsModal("🧪", "¡Repetición Excelente!", "Has completado la prueba de G y J de nuevo.", "+0 XP (Ya tenías este logro)");
+                }
+            } else {
+                playSound('error');
+                alert(`¡Inténtalo de nuevo! Has acertado ${gjCorrectAnswers} de ${totalQuestions} palabras. ¡Demuestra tu habilidad con las normas de la G y la J!`);
+                goHome();
+            }
+        }
+
+
+        // ==========================================
+        // MAXI DATABASE - GAME 3: EL ENIGMA DE LAS POLISÉMICAS (18 enigmas)
+        // ==========================================
+        const dataPoly = [
+            {
+                word: "Banco",
+                pista1: "Asiento largo donde caben varias personas, por ejemplo en un parque.",
+                pista2: "Establecimiento financiero o un conjunto de peces.",
+                options: ["Banco", "Silla", "Mesa", "Río"],
+                feedback: "¡Fantástico! 'Banco' sirve para sentarse, guardar dinero o designar un grupo de peces."
+            },
+            {
+                word: "Carta",
+                pista1: "Escrito que se envía dentro de un sobre para comunicarse.",
+                pista2: "Cada una de las cartulinas de una baraja o el menú de un restaurante.",
+                options: ["Carta", "Postal", "Papel", "Libro"],
+                feedback: "¡Exacto! 'Carta' tiene diferentes significados según juguemos, comamos o escribamos."
+            },
+            {
+                word: "Copa",
+                pista1: "Vaso con pie elegante que sirve para beber en celebraciones.",
+                pista2: "Trofeo que se otorga a un campeón o la parte superior de un árbol.",
+                options: ["Copa", "Medalla", "Plato", "Vaso"],
+                feedback: "¡Perfecto! La 'Copa' de un árbol, la de brindar y la de campeones son idénticas en nombre."
+            },
+            {
+                word: "Yema",
+                pista1: "La parte central de color amarillo del huevo de un ave.",
+                pista2: "La punta interior de los dedos o el brote de una rama.",
+                options: ["Yema", "Clara", "Dedo", "Hoja"],
+                feedback: "¡Excelente! 'Yema' es la parte del huevo y también el extremo sensible de los dedos."
+            },
+            {
+                word: "Pluma",
+                pista1: "Cada una de las piezas ligeras que cubren la piel de las aves.",
+                pista2: "Estilográfica antigua para escribir con tinta o el brazo de una gran grúa.",
+                options: ["Pluma", "Bolígrafo", "Ala", "Lápiz"],
+                feedback: "¡Estupendo! Las aves tienen 'plumas' y antiguamente usábamos 'plumas' de metal para escribir."
+            },
+            {
+                word: "Gato",
+                pista1: "Animal mamífero doméstico felino muy ágil.",
+                pista2: "Herramienta mecánica que sirve para elevar un coche y cambiar una rueda.",
+                options: ["Gato", "Perro", "Tornillo", "Tigre"],
+                feedback: "¡Exacto! El animal y la herramienta para levantar coches comparten el nombre 'Gato'."
+            },
+            {
+                word: "Planta",
+                pista1: "Organismo vivo vegetal que realiza la fotosíntesis.",
+                pista2: "Cada uno de los pisos de un edificio o la base inferior de nuestros pies.",
+                options: ["Planta", "Suelo", "Flor", "Árbol"],
+                feedback: "¡Excelente! 'Planta' es un ser vivo, el piso de una casa o la base del pie."
+            },
+            {
+                word: "Cabo",
+                pista1: "Lengua de tierra o accidente geográfico que penetra en el mar.",
+                pista2: "Cuerda en un barco o rango militar inmediatamente superior al de soldado.",
+                options: ["Cabo", "Sargento", "Isla", "Nudo"],
+                feedback: "¡Perfecto! Un 'Cabo' es militar, cuerda marina y un accidente geográfico."
+            },
+            {
+                word: "Muñeca",
+                pista1: "Juguete infantil con forma de persona.",
+                pista2: "La articulación de nuestro brazo que permite mover la mano.",
+                options: ["Muñeca", "Tobillo", "Peluche", "Codo"],
+                feedback: "¡Muy bien! Te duele la 'muñeca' si escribes mucho, y puedes jugar con una 'muñeca'."
+            },
+            {
+                word: "Hoja",
+                pista1: "Órgano verde y plano de las plantas que nace del tallo.",
+                pista2: "Cada una de las láminas de papel de un libro o el filo cortante de una espada.",
+                options: ["Hoja", "Tallo", "Página", "Navaja"],
+                feedback: "¡Genial! 'Hoja' de árbol, 'hoja' de libreta y 'hoja' de cuchillo."
+            },
+            {
+                word: "Falda",
+                pista1: "Prenda de vestir que cae desde la cintura.",
+                pista2: "La parte baja o base de una montaña o cordillera.",
+                options: ["Falda", "Pantalón", "Valle", "Cima"],
+                feedback: "¡Sí! Subimos por la 'falda' de la montaña y nos vestimos con una 'falda'."
+            },
+            {
+                word: "Estrella",
+                pista1: "Cuerpo celeste que brilla con luz propia en el firmamento.",
+                pista2: "Artista muy famoso o un animal marino simétrico con cinco brazos.",
+                options: ["Estrella", "Sol", "Actor", "Luna"],
+                feedback: "¡Brillante! 'Estrella' es el astro, la estrella de mar o un actor famoso."
+            },
+            {
+                word: "Ratón",
+                pista1: "Pequeño roedor de cola larga y orejas redondas.",
+                pista2: "Dispositivo informático periférico para mover el puntero en la pantalla.",
+                options: ["Ratón", "Teclado", "Hámster", "Queso"],
+                feedback: "¡Así es! El 'ratón' de ordenador se llama así por su parecido con el pequeño roedor."
+            },
+            {
+                word: "Sirena",
+                pista1: "Ser mitológico fantástico, mitad mujer y mitad pez.",
+                pista2: "Aparato sonoro de los vehículos de emergencia para alertar en el tráfico.",
+                options: ["Sirena", "Alarma", "Delfín", "Silbato"],
+                feedback: "¡Estupendo! La 'Sirena' de la ambulancia suena muy fuerte, igual que las sirenas de las leyendas."
+            },
+            {
+                word: "Llave",
+                pista1: "Instrumento metálico que sirve para abrir o cerrar cerraduras.",
+                pista2: "Herramienta de fontanería o signo ortográfico doble que sirve para agrupar { }.",
+                options: ["Llave", "Martillo", "Cerradura", "Paréntesis"],
+                feedback: "¡Correcto! Usamos la 'llave' para entrar a casa, para apretar un tornillo o para hacer esquemas."
+            },
+            {
+                word: "Cometa",
+                pista1: "Astro del sistema solar formado por hielo y polvo con una larga cola brillante.",
+                pista2: "Armazón plano de papel o tela que se hace volar mediante un hilo gracias al viento.",
+                options: ["Cometa", "Planeta", "Avión", "Globo"],
+                feedback: "¡Sensacional! La 'cometa' vuela en la playa y los astrónomos observan 'cometas' en el cielo."
+            },
+            {
+                word: "Manzana",
+                pista1: "Fruta comestible de piel verde, amarilla o roja del manzano.",
+                pista2: "Espacio de terreno urbano con edificios delimitado por cuatro calles.",
+                options: ["Manzana", "Pera", "Calle", "Plaza"],
+                feedback: "¡Perfecto! Una rica 'manzana' para merendar o dar una vuelta a la 'manzana' del barrio."
+            },
+            {
+                word: "Batería",
+                pista1: "Conjunto de instrumentos musicales de percusión.",
+                pista2: "Dispositivo que almacena energía eléctrica o grupo de ollas de cocina.",
+                options: ["Batería", "Tambor", "Pila", "Sartén"],
+                feedback: "¡Excelente! Un músico toca la 'batería', tu móvil se queda sin 'batería' y cocinas con una 'batería' de cocina."
+            }
+        ];
+
+        let polyIndex = 0;
+        let polyCorrectAnswers = 0;
+        let polySessionList = [];
+
+        function startPolysemicEnigma() {
+            playSound('click');
+            polyIndex = 0;
+            polyCorrectAnswers = 0;
+            
+            let shuffled = shuffle([...dataPoly]);
+            polySessionList = shuffled.slice(0, 5); // 5 random enigmas
+            
+            hideAllScreens();
+            document.getElementById('screen-game-poly').style.display = 'block';
+            updatePolyScreen();
+        }
+
+        function updatePolyScreen() {
+            const progress = (polyIndex / polySessionList.length) * 100;
+            document.getElementById('poly-progress').style.width = `${progress}%`;
+            document.getElementById('poly-step-count').innerText = `${polyIndex + 1}/${polySessionList.length}`;
+            
+            const item = polySessionList[polyIndex];
+            document.getElementById('poly-desc1').innerText = item.pista1;
+            document.getElementById('poly-desc2').innerText = item.pista2;
+            
+            // Render options
+            const optionsContainer = document.getElementById('poly-options');
+            optionsContainer.innerHTML = '';
+            
+            // Randomize options order using Fisher-Yates
+            const randomOptions = shuffle([...item.options]);
+            
+            randomOptions.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = "bg-white hover:bg-rose-50 border-2 border-rose-200 hover:border-rose-400 text-slate-800 font-bold py-4 px-6 rounded-2xl shadow-sm transition-all duration-200 text-lg text-left flex items-center gap-3";
+                btn.innerHTML = `<span>🔹</span> ${opt}`;
+                btn.onclick = () => checkPolyAnswer(opt);
+                optionsContainer.appendChild(btn);
+            });
+
+            const feedbackEl = document.getElementById('poly-feedback');
+            feedbackEl.classList.add('hidden');
+        }
+
+        function checkPolyAnswer(selected) {
+            const item = polySessionList[polyIndex];
+            const feedbackEl = document.getElementById('poly-feedback');
+            feedbackEl.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-800', 'bg-rose-100', 'text-rose-800');
+
+            // Disable option buttons temporarily
+            const buttons = document.querySelectorAll('#poly-options button');
+            buttons.forEach(b => b.disabled = true);
+
+            if (selected === item.word) {
+                playSound('success');
+                feedbackEl.innerText = item.feedback;
+                feedbackEl.classList.add('bg-emerald-100', 'text-emerald-800');
+                polyCorrectAnswers++;
+            } else {
+                playSound('error');
+                feedbackEl.innerText = `¡Vaya! La respuesta no es correcta. La palabra indicada era '${item.word}'. ${item.feedback}`;
+                feedbackEl.classList.add('bg-rose-100', 'text-rose-800');
+            }
+
+            setTimeout(() => {
+                polyIndex++;
+                if (polyIndex < polySessionList.length) {
+                    updatePolyScreen();
+                } else {
+                    finishGamePoly();
+                }
+            }, 3500);
+        }
+
+        function finishGamePoly() {
+            const totalQuestions = polySessionList.length;
+            const percentage = (polyCorrectAnswers / totalQuestions) * 100;
+            
+            if (percentage >= 80) { // 4 out of 5 correct
+                if (!state.completedGames.poly) {
+                    state.completedGames.poly = true;
+                    state.xp += 100;
+                    saveState();
+                    triggerCongratsModal("🎭", "¡Detective de Polisémicas!", "Dominas a la perfección las palabras de múltiple significado.", "+100 XP & Insignia de Oro");
+                } else {
+                    triggerCongratsModal("🎭", "¡Repetición Excelente!", "Has completado el juego de palabras polisémicas de nuevo.", "+0 XP (Ya tenías este logro)");
+                }
+            } else {
+                playSound('error');
+                alert(`¡Casi! Has acertado ${polyCorrectAnswers} de ${totalQuestions}. Vuelve a intentarlo para conseguir el trofeo.`);
+                goHome();
+            }
+        }
+
+
+        // ==========================================
+        // MAXI DATABASE - GAME 4: ATRAPA AL INTRUSO (18 familias)
+        // ==========================================
+        const dataFamily = [
+            {
+                root: "MAR",
+                words: [
+                    { word: "marino", correct: false },
+                    { word: "marea", correct: false },
+                    { word: "marisco", correct: false },
+                    { word: "marinero", correct: false },
+                    { word: "martillo", correct: true }
+                ],
+                explanation: "¡Correcto! 'Martillo' proviene de una raíz totalmente diferente y no tiene ninguna relación con el mar."
+            },
+            {
+                root: "FRUTA",
+                words: [
+                    { word: "frutería", correct: false },
+                    { word: "frutero", correct: false },
+                    { word: "disfrutar", correct: true },
+                    { word: "frutita", correct: false },
+                    { word: "frutal", correct: false }
+                ],
+                explanation: "¡Muy bien! 'Disfrutar' significa gozar, pero no pertenece a la familia léxica directa de 'fruta'."
+            },
+            {
+                root: "SOL",
+                words: [
+                    { word: "solar", correct: false },
+                    { word: "asoleado", correct: false },
+                    { word: "solana", correct: false },
+                    { word: "girasol", correct: false },
+                    { word: "soldado", correct: true }
+                ],
+                explanation: "¡Eso es! Un 'soldado' es un militar y su palabra no tiene nada que ver con nuestro astro, el Sol."
+            },
+            {
+                root: "LIBRO",
+                words: [
+                    { word: "librería", correct: false },
+                    { word: "librero", correct: false },
+                    { word: "libreta", correct: false },
+                    { word: "librito", correct: false },
+                    { word: "libre", correct: true }
+                ],
+                explanation: "¡Excelente! Estar 'libre' es un estado de libertad, no tiene parentesco léxico con 'libro'."
+            },
+            {
+                root: "PAN",
+                words: [
+                    { word: "panadería", correct: false },
+                    { word: "panadero", correct: false },
+                    { word: "panecillo", correct: false },
+                    { word: "empanar", correct: false },
+                    { word: "pantalla", correct: true }
+                ],
+                explanation: "¡Exacto! Una 'pantalla' es un dispositivo electrónico y no tiene ninguna relación con el pan tierno."
+            },
+            {
+                root: "FLOR",
+                words: [
+                    { word: "floristería", correct: false },
+                    { word: "florero", correct: false },
+                    { word: "florecer", correct: false },
+                    { word: "florido", correct: false },
+                    { word: "flotar", correct: true }
+                ],
+                explanation: "¡Perfecto! 'Flotar' viene del verbo que indica mantenerse en el agua, no procede de 'flor'."
+            },
+            {
+                root: "AGUA",
+                words: [
+                    { word: "acuático", correct: false },
+                    { word: "acueducto", correct: false },
+                    { word: "paraguas", correct: false },
+                    { word: "aguacero", correct: false },
+                    { word: "agudo", correct: true }
+                ],
+                explanation: "¡Excelente! 'Agudo' es una cualidad física o intelectual, no proviene del lexema del agua."
+            },
+            {
+                root: "ZAPATO",
+                words: [
+                    { word: "zapatería", correct: false },
+                    { word: "zapatero", correct: false },
+                    { word: "zapatilla", correct: false },
+                    { word: "zapatazo", correct: false },
+                    { word: "zapallo", correct: true }
+                ],
+                explanation: "¡Buen ojo! 'Zapallo' es una calabaza gigante y no tiene nada que ver con los zapatos."
+            },
+            {
+                root: "CASA",
+                words: [
+                    { word: "caserío", correct: false },
+                    { word: "casita", correct: false },
+                    { word: "casona", correct: false },
+                    { word: "casero", correct: false },
+                    { word: "casco", correct: true }
+                ],
+                explanation: "¡Correcto! El 'casco' protector no se deriva léxicamente de 'casa'."
+            },
+            {
+                root: "CARNE",
+                words: [
+                    { word: "carnicero", correct: false },
+                    { word: "carnicería", correct: false },
+                    { word: "carnívoro", correct: false },
+                    { word: "encarnar", correct: false },
+                    { word: "carretera", correct: true }
+                ],
+                explanation: "¡Buenísimo! Una 'carretera' es una vía de transporte, totalmente ajena a la carne."
+            },
+            {
+                root: "PELO",
+                words: [
+                    { word: "peluquería", correct: false },
+                    { word: "peluquero", correct: false },
+                    { word: "pelaje", correct: false },
+                    { word: "peluca", correct: false },
+                    { word: "pelota", correct: true }
+                ],
+                explanation: "¡Sí! Una 'pelota' es un objeto redondo para jugar, no proviene de la raíz de 'pelo'."
+            },
+            {
+                root: "CAMPO",
+                words: [
+                    { word: "campesino", correct: false },
+                    { word: "campiña", correct: false },
+                    { word: "acampar", correct: false },
+                    { word: "campestre", correct: false },
+                    { word: "campeón", correct: true }
+                ],
+                explanation: "¡Magnífico! El 'campeón' es el que gana un torneo; 'campo' tiene otra etimología aquí."
+            },
+            {
+                root: "CABALLO",
+                words: [
+                    { word: "caballería", correct: false },
+                    { word: "cabalgar", correct: false },
+                    { word: "caballero", correct: false },
+                    { word: "caballeriza", correct: false },
+                    { word: "cabello", correct: true }
+                ],
+                explanation: "¡Así es! El 'cabello' es el pelo de la cabeza, no proviene de la palabra 'caballo'."
+            },
+            {
+                root: "VENTANA",
+                words: [
+                    { word: "ventanal", correct: false },
+                    { word: "ventanilla", correct: false },
+                    { word: "contraventana", correct: false },
+                    { word: "ventanuca", correct: false },
+                    { word: "ventilador", correct: true }
+                ],
+                explanation: "¡Muy buena vista! El 'ventilador' proviene etimológicamente de 'viento', no de 'ventana'."
+            },
+            {
+                root: "BOCA",
+                words: [
+                    { word: "bocadillo", correct: false },
+                    { word: "bocanada", correct: false },
+                    { word: "boquera", correct: false },
+                    { word: "boquete", correct: false },
+                    { word: "boceto", correct: true }
+                ],
+                explanation: "¡Perfecto! Un 'boceto' es un dibujo preliminar o esquema, nada que ver con la 'boca'."
+            },
+            {
+                root: "RELOJ",
+                words: [
+                    { word: "relojero", correct: false },
+                    { word: "relojería", correct: false },
+                    { word: "contrarrelotge", correct: false },
+                    { word: "relojito", correct: false },
+                    { word: "relajado", correct: true }
+                ],
+                explanation: "¡Correcto! Sentirse 'relajado' viene de relajación, no tiene relación con el reloj."
+            },
+            {
+                root: "ÁRBOL",
+                words: [
+                    { word: "arboleda", correct: false },
+                    { word: "arbolito", correct: false },
+                    { word: "arbusto", correct: false },
+                    { word: "arbolado", correct: false },
+                    { word: "arveja", correct: true }
+                ],
+                explanation: "¡Sí! La 'arveja' es un guisante (legumbre) y no pertenece a la familia de 'árbol'."
+            },
+            {
+                root: "TIERRA",
+                words: [
+                    { word: "terrestre", correct: false },
+                    { word: "territorio", correct: false },
+                    { word: "enterrar", correct: false },
+                    { word: "terreno", correct: false },
+                    { word: "tierno", correct: true }
+                ],
+                explanation: "¡Fabuloso! Algo 'tierno' es blando o afectuoso, no se deriva de la palabra 'tierra'."
+            }
+        ];
+
+        let familyIndex = 0;
+        let familyCorrectAnswers = 0;
+        let familySessionList = [];
+
+        function startWordFamily() {
+            playSound('click');
+            familyIndex = 0;
+            familyCorrectAnswers = 0;
+            
+            let shuffled = shuffle([...dataFamily]);
+            familySessionList = shuffled.slice(0, 5); // 5 random families
+            
+            hideAllScreens();
+            document.getElementById('screen-game-family').style.display = 'block';
+            updateFamilyScreen();
+        }
+
+        function updateFamilyScreen() {
+            const progress = (familyIndex / familySessionList.length) * 100;
+            document.getElementById('family-progress').style.width = `${progress}%`;
+            document.getElementById('family-step-count').innerText = `${familyIndex + 1}/${familySessionList.length}`;
+            
+            const item = familySessionList[familyIndex];
+            document.getElementById('family-root').innerText = item.root;
+            
+            // Render family options
+            const optionsContainer = document.getElementById('family-options');
+            optionsContainer.innerHTML = '';
+            
+            // Shuffle words using Fisher-Yates
+            const shuffledWords = shuffle([...item.words]);
+            
+            shuffledWords.forEach(w => {
+                const btn = document.createElement('button');
+                btn.className = "bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 text-slate-800 font-bold py-4 px-2 rounded-2xl shadow-sm text-center transition-all duration-200 transform hover:scale-[1.03] text-sm md:text-base capitalize";
+                btn.innerText = w.word;
+                btn.onclick = () => checkFamilyAnswer(w.correct);
+                optionsContainer.appendChild(btn);
+            });
+
+            const feedbackEl = document.getElementById('family-feedback');
+            feedbackEl.classList.add('hidden');
+        }
+
+        function checkFamilyAnswer(isCorrectIntruder) {
+            const item = familySessionList[familyIndex];
+            const feedbackEl = document.getElementById('family-feedback');
+            feedbackEl.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-800', 'bg-rose-100', 'text-rose-800');
+
+            // Disable buttons
+            const buttons = document.querySelectorAll('#family-options button');
+            buttons.forEach(b => b.disabled = true);
+
+            if (isCorrectIntruder) {
+                playSound('success');
+                feedbackEl.innerText = item.explanation;
+                feedbackEl.classList.add('bg-emerald-100', 'text-emerald-800');
+                familyCorrectAnswers++;
+            } else {
+                playSound('error');
+                const correctWord = item.words.find(w => w.correct).word;
+                feedbackEl.innerText = `¡Oh, no! Ese miembro sí pertenece a la familia. El intruso era '${correctWord}'. ${item.explanation}`;
+                feedbackEl.classList.add('bg-rose-100', 'text-rose-800');
+            }
+
+            setTimeout(() => {
+                familyIndex++;
+                if (familyIndex < familySessionList.length) {
+                    updateFamilyScreen();
+                } else {
+                    finishGameFamily();
+                }
+            }, 3500);
+        }
+
+        function finishGameFamily() {
+            const totalQuestions = familySessionList.length;
+            const percentage = (familyCorrectAnswers / totalQuestions) * 100;
+            
+            if (percentage >= 80) { // 4 out of 5 correct
+                if (!state.completedGames.family) {
+                    state.completedGames.family = true;
+                    state.xp += 100;
+                    saveState();
+                    triggerCongratsModal("🌳", "¡Protector del Bosque de Palabras!", "Has detectado con éxito todos los intrusos léxicos.", "+100 XP & Insignia de Oro");
+                } else {
+                    triggerCongratsModal("🌳", "¡Repetición Excelente!", "Has completado el juego del árbol de las palabras de nuevo.", "+0 XP (Ya tenías este logro)");
+                }
+            } else {
+                playSound('error');
+                alert(`¡Sigue practicando! Has detectado ${familyCorrectAnswers} de ${totalQuestions} intrusos. ¡Sé más minucioso la próxima vez!`);
+                goHome();
+            }
+        }
+
+        // Initialize App on load
+        window.onload = function() {
+            initApp();
+        };
+    </script>
+</body>
+</html>
